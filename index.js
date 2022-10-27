@@ -1,47 +1,66 @@
 const ws = require('nodejs-websocket');
-const all = {};
+
+const store = {};
 
 const server = ws
   .createServer((conn) => {
+    const { path } = conn;
+    store[path] = { timer: null, count: 0 };
+
+    const current = store[path];
+
     conn.on('text', function (data) {
-      console.log('server[path]', conn.path);
+      console.log('server[path]', path);
       console.log('server[text]', data);
 
-      if (data > 0.7) {
-        conn.close();
+      if (current.timer) {
+        clearInterval(current.timer);
       }
 
-      each((_conn) => {
-        _conn.sendText((data * data).toString());
-      });
-    });
+      current.timer = setInterval(() => {
+        current.count += 1;
+        let data = Math.random() > 0.5 ? { type: 1, message: '成功' } : { type: 3, message: '失败' };
 
-    conn.on('connect', function () {
-      console.log('server[connect]');
+        each((_conn, finish) => {
+          if (current.count >= 10) {
+            _conn.sendText(JSON.stringify(data));
+
+            if (finish) close();
+            return;
+          }
+          _conn.sendText(current.count.toString());
+        });
+      }, 1000);
     });
 
     conn.on('close', function (code, reason) {
       console.log('server[close] => code', code);
       console.log('server[close] => reason', reason);
 
-      each((_conn) => {
-        _conn.close();
-      });
+      close();
     });
 
     conn.on('error', function (err) {
       console.log('server[error]', err);
 
+      close();
+    });
+
+    function close() {
       each((_conn) => {
         _conn.close();
       });
-    });
+
+      clearInterval(current.timer);
+      delete store.path;
+    }
 
     function each(fn) {
-      server.connections.forEach((_conn) => {
-        if (_conn.path === conn.path && _conn.readyState === 1) {
-          typeof fn === 'function' && fn(_conn);
-        }
+      const conns = server.connections.filter((_conn) => _conn.path === path && _conn.readyState === 1);
+
+      conns.forEach((_conn, index) => {
+        const finish = index === conns.length - 1;
+        typeof fn === 'function' && fn(_conn, finish);
       });
     }
   })
